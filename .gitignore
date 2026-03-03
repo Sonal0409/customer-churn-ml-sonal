@@ -78,7 +78,7 @@ data/processed/*.parquet
 *.ckpt
 *.pb
 *.onnx
-#models/*.pkl
+models/*.pkl
 models/*.h5
 
 # MLflow

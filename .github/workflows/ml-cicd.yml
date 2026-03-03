@@ -1,0 +1,188 @@
+name: ML CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  PYTHON_VERSION: '3.10'
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+
+jobs:
+  # Job 1: Code Quality and Tests
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black flake8
+
+    - name: Lint and format check
+      run: |
+        flake8 src/ --max-line-length=127
+        black --check src/
+
+    - name: Run tests
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+
+  # Job 2: Data Validation
+  validate-data:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        pip install pandas pandera great-expectations
+
+    - name: Validate data schema
+      run: |
+        python scripts/validate_data.py
+
+    - name: Check data quality
+      run: |
+        python scripts/data_quality_checks.py
+
+  # Job 3: Train Model
+  train:
+    needs: [test, validate-data]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        lfs: true  # Download Git LFS files
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Train model
+      run: |
+        python src/models/train.py
+      env:
+        MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
+
+    - name: Save model artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-model
+        path: models/
+
+  # Job 4: Evaluate Model
+  evaluate:
+    needs: train
+    runs-on: ubuntu-latest
+
+    outputs:
+      accuracy: ${{ steps.eval.outputs.accuracy }}
+      deploy: ${{ steps.eval.outputs.deploy }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Download model
+      uses: actions/download-artifact@v3
+      with:
+        name: trained-model
+        path: models/
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Evaluate model
+      id: eval
+      run: |
+        python src/evaluation/evaluate.py
+
+        # Read metrics
+        accuracy=$(cat metrics.json | jq -r '.accuracy')
+        echo "accuracy=$accuracy" >> $GITHUB_OUTPUT
+
+        # Decision: Deploy if accuracy > 90%
+        if (( $(echo "$accuracy > 0.90" | bc -l) )); then
+          echo "deploy=true" >> $GITHUB_OUTPUT
+        else
+          echo "deploy=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Comment on commit
+      uses: peter-evans/commit-comment@v2
+      with:
+        body: |
+          ## Model Evaluation Results
+
+          - **Accuracy:** ${{ steps.eval.outputs.accuracy }}
+          - **Deploy:** ${{ steps.eval.outputs.deploy }}
+
+  # Job 5: Deploy Model (only if evaluation passes)
+  deploy:
+    needs: evaluate
+    if: needs.evaluate.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+      url: https://api.example.com/model
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Download model
+      uses: actions/download-artifact@v3
+      with:
+        name: trained-model
+        path: models/
+
+    - name: Deploy to production
+      run: |
+        # This would deploy to your actual infrastructure
+        echo "Deploying model with accuracy: ${{ needs.evaluate.outputs.accuracy }}"
+        # ./deploy_script.sh
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: model-v${{ github.run_number }}
+        release_name: Model Release v${{ github.run_number }}
+        body: |
+          Automated model deployment
+
+          **Accuracy:** ${{ needs.evaluate.outputs.accuracy }}
+          **Commit:** ${{ github.sha }}

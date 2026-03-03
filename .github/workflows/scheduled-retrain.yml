@@ -1,0 +1,69 @@
+name: Scheduled Model Retraining
+
+on:
+  schedule:
+    # Run every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Manual trigger option
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Fetch latest data
+      run: |
+        python scripts/fetch_latest_data.py
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    - name: Check for data drift
+      id: drift
+      run: |
+        python scripts/check_drift.py
+
+        # Output drift status
+        drift_detected=$(cat drift_report.json | jq -r '.drift_detected')
+        echo "drift_detected=$drift_detected" >> $GITHUB_OUTPUT
+
+    - name: Retrain model
+      if: steps.drift.outputs.drift_detected == 'true' || github.event_name == 'workflow_dispatch'
+      run: |
+        python src/models/train.py --experiment-name "scheduled-retrain"
+      env:
+        MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+
+    - name: Compare with production model
+      id: compare
+      run: |
+        python scripts/compare_models.py
+
+        better=$(cat comparison.json | jq -r '.new_model_better')
+        echo "new_model_better=$better" >> $GITHUB_OUTPUT
+
+    - name: Deploy if better
+      if: steps.compare.outputs.new_model_better == 'true'
+      run: |
+        python scripts/deploy_model.py
+
+    - name: Send notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          Scheduled retraining completed
+          Drift detected: ${{ steps.drift.outputs.drift_detected }}
+          New model deployed: ${{ steps.compare.outputs.new_model_better }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()
