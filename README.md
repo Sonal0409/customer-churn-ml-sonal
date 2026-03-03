@@ -13,3 +13,6 @@ pip install -r requirements.txt
 ```bash
 python src/models/train.py
 ```
+## Real-time Predictions
+
+New API endpoint for real-time predictions.
