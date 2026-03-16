@@ -63,17 +63,14 @@ def main():
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    print(f"
-Model Accuracy: {accuracy:.2%}")
-    print("
-Classification Report:")
+    print(f"Model Accuracy: {accuracy:.2%}")
+    print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
     # Save model
     with open('models/churn_model.pkl', 'wb') as f:
         pickle.dump(model, f)
-    print("
-Model saved to models/churn_model.pkl")
+    print("Model saved to models/churn_model.pkl")
 
 if __name__ == "__main__":
     main()
