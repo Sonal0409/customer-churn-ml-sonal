@@ -117,7 +117,7 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
 
     - name: Download model
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v7
       with:
         name: trained-model
         path: models/
