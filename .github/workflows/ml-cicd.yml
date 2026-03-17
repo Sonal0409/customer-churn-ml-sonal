@@ -94,7 +94,7 @@ jobs:
         MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
 
     - name: Save model artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: trained-model
         path: models/
