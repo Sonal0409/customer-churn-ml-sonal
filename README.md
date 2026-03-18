@@ -1,6 +1,6 @@
 # Customer Churn Prediction
 
-ML model to predict customer churn.
+ML model to predict customer churn.Automation using Devops tools
 
 ## Setup
 
